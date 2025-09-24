@@ -5,54 +5,40 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Korean Grammar Coach · Voice Agent</title>
 
-  <!-- Tailwind (CDN) - remove if you don't want it -->
-  <script src="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.10/lib/index.min.js"></script>
-
-  <style>
-    /* Prevent layout shift while Tailwind CDN warms up */
-    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Noto Sans", sans-serif; background:#f7f7f8 }
-  </style>
+  <!-- Correct Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>body{background:#f7f7f8}</style>
 </head>
 <body>
   <div class="w-full max-w-md mx-auto p-4">
     <div class="rounded-3xl border border-gray-200 shadow-sm p-5 bg-white">
       <div class="flex items-center justify-between mb-4">
         <h1 class="text-lg font-semibold tracking-tight">Korean Grammar Coach</h1>
-        <span id="statusChip"
-          class="text-xs px-2 py-1 rounded-full bg-gray-50 text-gray-600">idle</span>
+        <span id="statusChip" class="text-xs px-2 py-1 rounded-full bg-gray-50 text-gray-600">idle</span>
       </div>
 
       <div class="flex flex-col items-center gap-3 py-6">
         <!-- Timer -->
         <div id="timerText" class="text-4xl tabular-nums font-mono">0:00.000</div>
-        <div id="helperText" class="text-xs text-gray-500">
-          timer will start when you speak
-        </div>
+        <div id="helperText" class="text-xs text-gray-500">timer will start when you speak</div>
 
         <!-- Controls -->
         <div class="flex gap-3 mt-4">
-          <button id="startBtn"
-            class="px-4 py-2 rounded-2xl border border-gray-300 hover:bg-gray-50 active:scale-[.99]">
-            Start
-          </button>
-          <button id="stopBtn" style="display:none"
-            class="px-4 py-2 rounded-2xl border border-gray-300 hover:bg-gray-50 active:scale-[.99]">
-            Stop
-          </button>
+          <button id="startBtn" class="px-4 py-2 rounded-2xl border border-gray-300 hover:bg-gray-50 active:scale-[.99]">Start</button>
+          <button id="stopBtn" style="display:none" class="px-4 py-2 rounded-2xl border border-gray-300 hover:bg-gray-50 active:scale-[.99]">Stop</button>
         </div>
 
-        <!-- Mic visualizer (dot that grows with RMS) -->
+        <!-- Mic visualizer (dot grows with RMS) -->
         <div class="mt-2 h-8 flex items-center justify-center">
-          <div id="micDot" aria-hidden class="rounded-full"
-               style="width:12px;height:12px;background:#111;opacity:.8"></div>
+          <div id="micDot" aria-hidden class="rounded-full" style="width:12px;height:12px;background:#111;opacity:.8"></div>
         </div>
       </div>
 
-      <div id="errorBox" class="text-sm text-rose-600 border-t pt-4 hidden"></div>
+      <div id="warnBox" class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 hidden"></div>
+      <div id="errorBox" class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3 hidden mt-3"></div>
 
       <div class="mt-4 text-[11px] text-gray-500 leading-relaxed">
-        Tip: keep your API key on the server. Public agents can use WebRTC with just an agentId.
-        Private agents need a conversation token issued by your backend. :contentReference[oaicite:1]{index=1}
+        Public agents can use WebRTC with just an agentId. Private agents need a conversation token from your backend. Site must be served over HTTPS.
       </div>
     </div>
 
@@ -61,49 +47,54 @@
     </div>
   </div>
 
-  <!-- Your app logic -->
   <script type="module">
-    // ===== CONFIG =====
-    // If you have a PUBLIC agent, set its ID here:
-    const AGENT_ID = "agent_5001k5x6hf18fzs8bpph834q4ebg"; // ← replace with your agent ID
-    // If your agent is PRIVATE, fetch a conversation token from your backend and
-    // pass { conversationToken, connectionType:'webrtc' } instead of { agentId }.
+    // =====================
+    // CONFIG
+    // =====================
+    const AGENT_ID = "agent_5001k5x6hf18fzs8bpph834q4ebg"; // TODO: replace with your public agent ID
+    const USE_WEBSOCKET = false; // leave false for WebRTC; if you flip this later, you’ll need a signed URL / token.
 
-    // ===== Import ElevenLabs SDK (browser ESM over CDN) =====
-    // Docs: Conversation.startSession({...}) for WebRTC/WebSocket. :contentReference[oaicite:2]{index=2}
-    // CDN: @elevenlabs/client (ESM/UMD) is available via jsDelivr. :contentReference[oaicite:3]{index=3}
-    const Eleven = await import("https://cdn.jsdelivr.net/npm/@elevenlabs/client@0.5.1/lib.modern.js");
-    const { Conversation } = Eleven;
+    // Try to import ElevenLabs SDK from CDN; if it fails, we run in Test Mode.
+    let Eleven = null;
+    let Conversation = null;
+    try {
+      Eleven = await import("https://cdn.jsdelivr.net/npm/@elevenlabs/client/dist/elevenlabs.min.mjs");
+      Conversation = Eleven?.Conversation;
+    } catch (e) {
+      // Fall through to Test Mode
+    }
 
-    // ===== UI elements =====
+    // =====================
+    // UI elements
+    // =====================
     const statusChip = document.getElementById("statusChip");
     const timerText  = document.getElementById("timerText");
     const helperText = document.getElementById("helperText");
     const startBtn   = document.getElementById("startBtn");
     const stopBtn    = document.getElementById("stopBtn");
     const micDot     = document.getElementById("micDot");
+    const warnBox    = document.getElementById("warnBox");
     const errorBox   = document.getElementById("errorBox");
 
-    // ===== State =====
+    // =====================
+    // State
+    // =====================
     let connected = false;
     let speaking  = false;
     let status    = "idle";
     let elapsed   = 0;
 
-    // Timer refs
-    let speechStartedAt = null;  // number | null
-    let rafId = null;            // number | null
+    let speechStartedAt = null;
+    let rafId = null;
 
-    // Audio + VAD refs
-    let mediaStream = null;      // MediaStream | null
-    let audioCtx = null;         // AudioContext | null
-    let analyser = null;         // AnalyserNode | null
-    let source = null;           // MediaStreamAudioSourceNode | null
+    let mediaStream = null;
+    let audioCtx = null;
+    let analyser = null;
+    let source = null;
 
-    // ElevenLabs conversation
-    let conversation = null;     // Conversation | null
+    let conversation = null; // ElevenLabs session or null
 
-    // ===== UTIL: format ms → mm:ss.mmm =====
+    // ===== UTIL =====
     function fmt(ms) {
       const mm  = Math.floor(ms / 60000);
       const ss  = Math.floor((ms % 60000) / 1000);
@@ -114,8 +105,6 @@
     function setStatus(newStatus) {
       status = newStatus;
       statusChip.textContent = newStatus;
-
-      // update chip colors
       statusChip.className = "text-xs px-2 py-1 rounded-full";
       if (connected) {
         statusChip.classList.add("bg-emerald-50","text-emerald-700");
@@ -145,11 +134,23 @@
       }
     }
 
-    // ===== VAD loop (simple RMS threshold) =====
+    function setWarn(msg) {
+      if (!msg) {
+        warnBox.classList.add("hidden");
+        warnBox.textContent = "";
+      } else {
+        warnBox.classList.remove("hidden");
+        warnBox.textContent = msg;
+      }
+    }
+
+    // =====================
+    // VAD loop (RMS)
+    // =====================
     function startVadLoop() {
       if (!analyser) return;
       const data = new Uint8Array(analyser.fftSize);
-      const threshold = 10; // tweak as needed (0..255). ~10 is gentle.
+      const threshold = 10; // tweak (0..255)
 
       const loop = () => {
         analyser.getByteTimeDomainData(data);
@@ -158,23 +159,19 @@
           const centered = data[i] - 128;
           sum += centered * centered;
         }
-        const rms = Math.sqrt(sum / data.length); // 0..~128
+        const rms = Math.sqrt(sum / data.length);
 
-        // Start timer on first detected speech burst
         if (!speaking && rms > threshold) {
           speaking = true;
           if (!speechStartedAt) speechStartedAt = performance.now();
           helperText.textContent = "listening… timer running";
         }
-
-        // Update the elapsed timer
         if (speaking && speechStartedAt != null) {
           const now = performance.now();
           elapsed = now - speechStartedAt;
           timerText.textContent = fmt(elapsed);
         }
 
-        // Grow the mic dot a bit with RMS (6..24px radius)
         const radius = 6 + Math.min(18, rms / 3);
         micDot.style.width = `${radius * 2}px`;
         micDot.style.height = `${radius * 2}px`;
@@ -189,8 +186,11 @@
       rafId = null;
     }
 
-    // ===== Setup audio input + analyser =====
+    // =====================
+    // Audio chain
+    // =====================
     async function setupAudioChain() {
+      // iOS/Safari: AudioContext must start after user gesture; we’re in click handler, so good.
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStream = stream;
 
@@ -198,10 +198,15 @@
       audioCtx = new Ctx();
 
       analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 1024; // fine for VAD
+      analyser.fftSize = 1024;
 
       source = audioCtx.createMediaStreamSource(stream);
       source.connect(analyser);
+
+      // Resume context if suspended (Chrome autostart policy)
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume();
+      }
 
       startVadLoop();
     }
@@ -216,7 +221,6 @@
         mediaStream.getTracks().forEach(t => t.stop());
         mediaStream = null;
       }
-
       if (audioCtx) {
         try { await audioCtx.close(); } catch {}
         audioCtx = null;
@@ -229,26 +233,57 @@
       helperText.textContent = "timer will start when you speak";
     }
 
-    // ===== Start / Stop =====
+    // =====================
+    // ElevenLabs start/stop with fallback
+    // =====================
+    async function startElevenLabs() {
+      if (!Conversation) throw new Error("ElevenLabs SDK not loaded");
+      const opts = USE_WEBSOCKET
+        ? { agentId: AGENT_ID, connectionType: "websocket" }
+        : { agentId: AGENT_ID, connectionType: "webrtc" };
+      return Conversation.startSession(opts);
+    }
+
+    // Simple fallback “Test Mode”: speaks one sentence with Web Speech API
+    function testModeSpeakOnce(text) {
+      try {
+        const synth = window.speechSynthesis;
+        if (!synth) return;
+        const uttr = new SpeechSynthesisUtterance(text);
+        synth.cancel();
+        synth.speak(uttr);
+      } catch {}
+    }
+
     async function handleStart() {
       setError(null);
+      setWarn(null);
       setStatus("requesting-mic");
 
       try {
         await setupAudioChain();
         setStatus("connecting");
 
-        // PUBLIC agent: use agentId + WebRTC.
-        // PRIVATE agent: fetch('/conversation-token') then pass { conversationToken, connectionType:'webrtc' }.
-        conversation = await Conversation.startSession({
-          agentId: AGENT_ID,
-          connectionType: "webrtc"
-        });
-
-        // Optional: wire up SDK callbacks if available by your agent settings (see docs). :contentReference[oaicite:4]{index=4}
-        // conversation.onStatusChange?.((s)=>console.log("status:", s));
+        // Try ElevenLabs; if that fails, switch to Test Mode
+        let usedTestMode = false;
+        try {
+          if (Conversation) {
+            conversation = await startElevenLabs();
+          } else {
+            usedTestMode = true;
+            setWarn("Running in Test Mode (ElevenLabs SDK not loaded). I’ll still show mic activity and a demo voice line.");
+          }
+        } catch (e) {
+          usedTestMode = true;
+          setWarn("Failed to start ElevenLabs session. Running in Test Mode instead.");
+        }
 
         setConnected(true);
+
+        // In Test Mode, play one demo response so the user sees “something happens”
+        if (usedTestMode) {
+          testModeSpeakOnce("안녕하세요! This is a local demo voice. ElevenLabs is not connected, but your mic and timer are working.");
+        }
       } catch (e) {
         console.error(e);
         setError(e?.message || String(e));
@@ -262,7 +297,6 @@
       setStatus("stopping");
       try {
         if (conversation) {
-          // Newer SDKs: endSession(); older: stopSession()
           if (typeof conversation.endSession === "function") {
             await conversation.endSession();
           } else if (typeof conversation.stopSession === "function") {
@@ -275,7 +309,9 @@
       setConnected(false);
     }
 
-    // ===== Bind UI =====
+    // =====================
+    // Bind UI
+    // =====================
     startBtn.addEventListener("click", handleStart);
     stopBtn.addEventListener("click", handleStop);
   </script>
