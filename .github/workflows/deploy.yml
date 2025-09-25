@@ -16,9 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Replace API key placeholder
-        run: |
-          sed -i 's/__ELEVENLABS_API_KEY__/"${{ secrets.ELEVENLABS_API_KEY }}"/g' index.html
+- name: Replace API key placeholder
+  run: |
+    # sed -i 's/__ELEVENLABS_API_KEY__/"${{ secrets.ELEVENLABS_API_KEY }}"/g' index.html
+    echo "Skipping API key replacement for now"
           
       - name: Setup Pages
         uses: actions/configure-pages@v4
