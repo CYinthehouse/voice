@@ -28,8 +28,7 @@
 
         // Configuration
         const AGENT_ID = "agent_5001k5x6hf18fzs8bpph834q4ebg";
-        // ⚠️ NEVER put your API key here in production! See comments below for secure options.
-        const API_KEY = null;
+        const API_KEY = "__ELEVENLABS_API_KEY__"; // This gets replaced by GitHub Actions
 
         function VoiceAgentContainer() {
             const [connected, setConnected] = useState(false);
