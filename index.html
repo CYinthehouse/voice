@@ -28,7 +28,7 @@
 
         // Configuration
         const AGENT_ID = "agent_5001k5x6hf18fzs8bpph834q4ebg";
-        const API_KEY = "null"; // This gets replaced by GitHub Actions
+        const API_KEY = "__ELEVENLABS_API_KEY__"; // This gets replaced by GitHub Actions
 
         function VoiceAgentContainer() {
             const [connected, setConnected] = useState(false);
@@ -179,8 +179,8 @@
                             connectionType: "webrtc",
                         };
 
-                        // Add API key if provided (⚠️ INSECURE for production!)
-                        if (API_KEY) {
+                        // Add API key if provided and not a placeholder
+                        if (API_KEY && API_KEY !== "__ELEVENLABS_API_KEY__") {
                             sessionConfig.apiKey = API_KEY;
                         }
 
